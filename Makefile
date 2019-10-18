@@ -25,6 +25,7 @@ build: check_version
 debian: check_version build
 	mkdir -p $(PACKAGE_DIR)/$(EXTRACT_DIR)/bin
 	cp -r $(BINDIR)/$(NAME)-$(arch) $(PACKAGE_DIR)/$(EXTRACT_DIR)/bin/$(NAME)
+	chmod +x $(PACKAGE_DIR)/$(EXTRACT_DIR)/bin/$(NAME)
 	cp -r porter.cfg $(PACKAGE_DIR)/$(EXTRACT_DIR)/bin/mq.cfg
 	echo $(version) > $(PACKAGE_DIR)/$(EXTRACT_DIR)/VERSION
 	
