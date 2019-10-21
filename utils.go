@@ -17,6 +17,8 @@ func readWorkerID() string {
 		s := scanner.Text()
 		if strings.HasPrefix(s, "workid:") {
 			return strings.TrimSpace(s[7:])
+		} else if strings.HasPrefix(s, "workerid:") {
+			return strings.TrimSpace(s[9:])
 		}
 	}
 
