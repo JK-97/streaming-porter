@@ -1,7 +1,10 @@
 NAME=mq
+PACKAGE_NAME=jx-mq
 BINDIR=build/bin
 PACKAGE_DIR=build/package-$(arch)
 EXTRACT_DIR=edge/mnt/mq
+CHANGELOG=build/CHANGELOG.md
+RC_TAG=$(shell git tag -l "rc-*" --points-at HEAD)
 
 version=$(shell git tag -l "v*" --points-at HEAD | tail -n 1 | tail -c +2 )
 commit=$(shell git rev-parse --short HEAD)
@@ -18,25 +21,62 @@ check_version:
 ifeq ($(version),)
 	$(error No version tag found)
 endif
-	
-build: check_version
+ifeq ($(shell git cat-file -t v$(version)),commit)
+	$(error Changelog should be in tag message)
+endif
+
+check_rc:
+ifeq ($(RC_TAG),)
+	$(error No rc-* tag found)
+endif
+
+build:
 	GOARCH=$(arch) $(GO) build $(GOFLAGS) -o $(BINDIR)/$(NAME)-$(arch)
 
-debian: check_version build
+changelog:
+	mkdir -p build
+	echo "# Changelog\n" > $(CHANGELOG)
+	TZ=UTC-8 git tag -l 'v*' --sort=-creatordate --format='## %(refname:short) - %(creatordate:iso-local)%0a### Author: %(taggername) %(taggeremail)%0a%(contents)%0a' >> $(CHANGELOG)
+
+upload_changelog: changelog
+	curl -s --fail -F "changelog=@$(CHANGELOG)" "http://packages.debian.jiangxingai.com:8000/api/v1/packages/$(PACKAGE_NAME)/changelog"
+
+debian_base: build
 	mkdir -p $(PACKAGE_DIR)/$(EXTRACT_DIR)/bin
 	cp -r $(BINDIR)/$(NAME)-$(arch) $(PACKAGE_DIR)/$(EXTRACT_DIR)/bin/$(NAME)
 	chmod +x $(PACKAGE_DIR)/$(EXTRACT_DIR)/bin/$(NAME)
 	cp -r porter.cfg $(PACKAGE_DIR)/$(EXTRACT_DIR)/bin/mq.cfg
-	echo $(version) > $(PACKAGE_DIR)/$(EXTRACT_DIR)/VERSION
-	
 	mkdir -p $(PACKAGE_DIR)/DEBIAN/
-	sed -e "s/REPLACE_VERSION/$(version)/g" -e "s/REPLACE_ARCH/$(arch)/" DEBIAN/control > $(PACKAGE_DIR)/DEBIAN/control
-	dpkg -b $(PACKAGE_DIR) build/$(NAME)_$(version)_$(arch).deb
 
+debian: check_version changelog debian_base
+	echo $(version) > $(PACKAGE_DIR)/$(EXTRACT_DIR)/VERSION
+
+	sed -e "s/REPLACE_VERSION/$(version)/g" \
+		-e "s/REPLACE_ARCH/$(arch)/g" \
+		-e "s/REPLACE_PACKAGE_NAME/$(PACKAGE_NAME)/g" \
+		DEBIAN/control > $(PACKAGE_DIR)/DEBIAN/control
+
+	dpkg -b $(PACKAGE_DIR) build/$(NAME)_$(version)_$(arch).deb
+	rm -rf $(PACKAGE_DIR)
+
+debian_rc: check_rc debian_base
+	sed -e "s/REPLACE_VERSION/0.1.0-$(RC_TAG)/g" \
+		-e "s/REPLACE_ARCH/$(arch)/g" \
+		-e "s/REPLACE_PACKAGE_NAME/$(PACKAGE_NAME)-dev/g" \
+		DEBIAN/control > $(PACKAGE_DIR)/DEBIAN/control
+		
+	dpkg -b $(PACKAGE_DIR) build/$(NAME)-dev_0.1.0-$(RC_TAG)_$(arch).deb
 	rm -rf $(PACKAGE_DIR)
 
 push_to_source:
 	bash scripts/upload.sh
+
+deploy_prerelease:
+	bash scripts/deploy.sh $(PACKAGE_NAME) $(version) prerelease
+
+deploy_rc:
+	bash scripts/deploy.sh $(PACKAGE_NAME)-dev 0.1.0-$(RC_TAG) review
+	printf "\033[0;31mTo download package $(PACKAGE_NAME), run in development environment: apt install $(PACKAGE_NAME)-dev=0.1.0-$(RC_TAG)\n"
 
 test:
 	go test -v -cover -coverprofile=coverage.out ./...
