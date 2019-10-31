@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"streaming-porter/adapter"
-	"streaming-porter/go-utils/logger"
+	"gitlab.jiangxingai.com/applications/base-modules/internal-sdk/go-utils/logger"
 
 	"github.com/BurntSushi/toml"
 	"github.com/gorilla/websocket"
