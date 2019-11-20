@@ -6,10 +6,10 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"streaming-porter/go-utils/logger"
 	"sync"
 
 	"github.com/streadway/amqp"
+	"gitlab.jiangxingai.com/applications/base-modules/internal-sdk/go-utils/logger"
 )
 
 const defaultExchange = ""

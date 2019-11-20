@@ -1,7 +1,7 @@
 package adapter
 
 import (
-	"streaming-porter/go-utils/logger"
+	"gitlab.jiangxingai.com/applications/base-modules/internal-sdk/go-utils/logger"
 	"sync"
 
 	"github.com/go-redis/redis"

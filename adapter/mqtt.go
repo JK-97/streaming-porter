@@ -1,8 +1,9 @@
 package adapter
 
 import (
-	"streaming-porter/go-utils/logger"
 	"sync"
+
+	"gitlab.jiangxingai.com/applications/base-modules/internal-sdk/go-utils/logger"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
