@@ -1,6 +1,6 @@
 package sync
 
-import "streaming-porter/adapter"
+import "gitlab.jiangxingai.com/edgenode/synctools/streaming-porter/adapter"
 
 // Synchronizer 消息同步器
 type Synchronizer interface {

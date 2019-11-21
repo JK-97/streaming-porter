@@ -9,19 +9,8 @@ import (
 	"sync"
 
 	"github.com/streadway/amqp"
+
 	"gitlab.jiangxingai.com/applications/base-modules/internal-sdk/go-utils/logger"
-)
-
-const defaultExchange = ""
-
-// const (
-// 	amqpExchangeCreatedTopic = "exchange.created"
-// 	amqpEventExchange        = "amq.rabbitmq.event"
-// )
-
-const (
-	exchangeTypeDirect = "direct"
-	exchangeTypeFanout = "fanout"
 )
 
 type amqpExchangeStruct struct {
@@ -54,13 +43,14 @@ func (m *AMQPMessage) Nack() error {
 // AmqpMessageClient 处理 AMQP 协议的消息接收发送。
 // 进支持 AMQP 0.9.1 协议
 type AmqpMessageClient struct {
-	URI        string
-	Queue      string
-	channel    chan MsgPair
-	conn       *amqp.Connection
-	pubChannel *amqp.Channel
-	subChannel *amqp.Channel
-	mu         *sync.RWMutex
+	URI              string
+	Queue            string
+	channel          chan MsgPair
+	subscribedTopics map[string]bool // 已订阅的 Topic
+	conn             *amqp.Connection
+	pubChannel       *amqp.Channel
+	subChannel       *amqp.Channel
+	mu               *sync.RWMutex
 }
 
 // Connect bala
@@ -144,8 +134,12 @@ func (c *AmqpMessageClient) SubChannel() *amqp.Channel {
 	}
 	channel, err := c.conn.Channel()
 	if err == nil {
-		c.subChannel = channel
-		channel.QueueDeclare(c.Queue, true, false, false, false, nil)
+		if _, err := channel.QueueInspect(c.Queue); err != nil {
+			channel.Close()
+			channel, err = c.conn.Channel()
+			channel.QueueDeclare(c.Queue, true, false, false, false, nil)
+		}
+
 		// // TODO: 监听事件
 		// err = c.subChannel.QueueBind(c.Queue, amqpExchangeCreatedTopic, amqpEventExchange, false, nil)
 		// if err != nil {
@@ -156,6 +150,7 @@ func (c *AmqpMessageClient) SubChannel() *amqp.Channel {
 		// 		logger.Info(err)
 		// 	}
 		// }
+		c.subChannel = channel
 	}
 	return channel
 }
@@ -163,14 +158,31 @@ func (c *AmqpMessageClient) SubChannel() *amqp.Channel {
 // Subscribe bala
 func (c *AmqpMessageClient) Subscribe(topics ...string) error {
 	channel := c.SubChannel()
+	// 是否为新订阅
+	var newSub bool
 	for _, topic := range topics {
+		if !c.subscribedTopics[topic] {
+			c.subscribedTopics[topic] = true
+			newSub = true
+		}
 
 		// TODO
 		err := channel.QueueBind(c.Queue, "", topic, false, nil)
 		if err != nil {
+			channel.Close()
+			c.subChannel = nil
 			return err
 		}
 	}
+	if newSub && c.subChannel != nil && c.channel != nil {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		// 关闭订阅用 Channel，等待调用方重新打开
+		c.subChannel.Close()
+		c.subChannel = nil
+	}
+
 	return nil
 }
 
@@ -178,6 +190,7 @@ func (c *AmqpMessageClient) Subscribe(topics ...string) error {
 func (c *AmqpMessageClient) Unsubscribe(topics ...string) error {
 	channel := c.SubChannel()
 	for _, topic := range topics {
+		c.subscribedTopics[topic] = false
 
 		// TODO
 		err := channel.QueueUnbind(c.Queue, "", topic, nil)
@@ -196,7 +209,11 @@ func (c *AmqpMessageClient) AllTopics() (topics []string, err error) {
 
 	URL := fmt.Sprintf("http://%s:%d/api/exchanges/%s", uri.Host, uri.Port+10000, url.QueryEscape(uri.Vhost))
 
-	req, err := http.NewRequest("GET", URL, nil)
+	var req *http.Request
+	req, err = http.NewRequest("GET", URL, nil)
+	if err != nil {
+		return
+	}
 	req.SetBasicAuth(auth.Username, auth.Password)
 
 	req.Header.Set("Accept", "application/json")
@@ -221,7 +238,7 @@ func (c *AmqpMessageClient) AllTopics() (topics []string, err error) {
 	topics = make([]string, len(exchanges))
 	i := 0
 	for _, exchange := range exchanges {
-		if exchange.Type == exchangeTypeFanout {
+		if exchange.Type == amqp.ExchangeFanout {
 			topics[i] = exchange.Name
 			i++
 		}
@@ -241,40 +258,7 @@ func (c *AmqpMessageClient) GetChan() <-chan MsgPair {
 	if c.channel == nil {
 		logger.Info("Make Chan:", c.URI)
 		c.channel = make(chan MsgPair, 1)
-		go func() {
-			amqChan, err := c.SubChannel().Consume(c.Queue, c.Queue, false, false, true, false, nil)
-
-			if err != nil {
-				logger.Info(err)
-			}
-
-			for {
-				select {
-				case msg := <-amqChan:
-
-					if msg.DeliveryMode == amqp.Transient {
-						continue
-					}
-					if msg.Exchange == "" {
-						if c.conn.IsClosed() {
-							logger.Info("Connection Closed")
-							c.Close()
-							return
-						}
-						continue
-					}
-
-					c.channel <- &AMQPMessage{
-						Message: Message{
-							topic: msg.Exchange,
-							data:  msg.Body,
-						},
-						Delivery: &msg,
-					}
-
-				}
-			}
-		}()
+		go c.consume()
 	}
 
 	return c.channel
@@ -293,4 +277,49 @@ func (c *AmqpMessageClient) Publish(topic string, message interface{}) error {
 	})
 
 	return err
+}
+
+func (c *AmqpMessageClient) consume() {
+
+	channel := c.SubChannel()
+	errChan := make(chan *amqp.Error, 2)
+	amqChan, err := channel.Consume(c.Queue, c.Queue, false, false, true, false, nil)
+	channel.NotifyClose(errChan)
+
+	if err != nil {
+		logger.Info(err)
+	}
+
+	for {
+		select {
+		case msg := <-amqChan:
+			if msg.DeliveryMode == amqp.Transient {
+				// 跳过不持久保存的消息
+				continue
+			}
+			if msg.Exchange == "" {
+				if c.conn.IsClosed() {
+					logger.Info("Connection Closed")
+					c.Close()
+					return
+				}
+				continue
+			}
+
+			c.channel <- &AMQPMessage{
+				Message: Message{
+					topic: msg.Exchange,
+					data:  msg.Body,
+				},
+				Delivery: &msg,
+			}
+		case err := <-errChan:
+			if err == amqp.ErrClosed || c.conn.IsClosed() {
+				logger.Info("Connection Closed")
+				c.Close()
+				return
+			}
+			return
+		}
+	}
 }

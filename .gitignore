@@ -34,3 +34,4 @@ debug
 version.go
 streaming-porter*
 build/
+.idea/

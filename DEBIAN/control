@@ -1,4 +1,4 @@
-Package: REPLACE_PACKAGE_NAME
+Package: jx-mq
 Version: REPLACE_VERSION
 Maintainer: liuruihua <liuruihua@jiangxing.ai>
 Description: Sync Message Queue.

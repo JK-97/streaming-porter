@@ -1,4 +1,4 @@
-module streaming-porter
+module gitlab.jiangxingai.com/edgenode/synctools/streaming-porter
 
 go 1.13
 

@@ -1,8 +1,9 @@
 package adapter
 
 import (
-	"gitlab.jiangxingai.com/applications/base-modules/internal-sdk/go-utils/logger"
 	"sync"
+
+	"gitlab.jiangxingai.com/applications/base-modules/internal-sdk/go-utils/logger"
 
 	"github.com/go-redis/redis"
 )

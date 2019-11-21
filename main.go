@@ -15,8 +15,8 @@ import (
 	"syscall"
 	"time"
 
-	"streaming-porter/adapter"
 	"gitlab.jiangxingai.com/applications/base-modules/internal-sdk/go-utils/logger"
+	"gitlab.jiangxingai.com/edgenode/synctools/streaming-porter/adapter"
 
 	"github.com/BurntSushi/toml"
 	"github.com/gorilla/websocket"
@@ -40,11 +40,10 @@ type porterConfig struct {
 }
 
 func tryUntilConnected(client adapter.MessageClient) {
-	for {
-		err := client.Connect()
-		if err == nil {
-			return
-		}
+	var err error
+	err = client.Connect()
+	for err != nil {
+		logger.Info(err)
 		time.Sleep(time.Second)
 	}
 }
@@ -60,7 +59,10 @@ func StartSync(local, remote adapter.MessageClient, ch <-chan string) {
 		// 需要同步的主题增加
 		case topic := <-ch:
 			logger.Info("Sync:", topic)
-			local.Subscribe(topic)
+			if err := local.Subscribe(topic); err != nil {
+				logger.Info(err)
+			}
+
 		// 云端同步到本地
 		case obj = <-edgeToLocal:
 			if obj == nil {
@@ -125,7 +127,6 @@ func StartSync(local, remote adapter.MessageClient, ch <-chan string) {
 				logger.Infof("T: %s, D: %s", obj.Topic(), string(data.([]byte)))
 			default:
 				logger.Infof("T: %s, D: %v", obj.Topic(), data)
-
 			}
 			err := remoteClient.Publish(obj.Topic(), obj.Data())
 			if err != nil {
@@ -158,12 +159,9 @@ func parseCommandLine(configPath *string) (string, string) {
 				URI string `json:"uri"`
 			}
 		}
-		buf, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			panic(err)
-		}
+
 		defer resp.Body.Close()
-		err = json.Unmarshal(buf, &mq)
+		err = json.NewDecoder(resp.Body).Decode(&mq)
 		if err != nil {
 			panic(err)
 		}
@@ -200,13 +198,15 @@ func checkConnection(local, remote adapter.MessageClient) error {
 		return err
 	}
 
-	remote.Subscribe("cloud2edge", "cloud2edge-"+config.WorkerID)
+	if err := remote.Subscribe("cloud2edge", "cloud2edge-"+config.WorkerID); err != nil {
+		logger.Info(err)
+	}
 
 	return nil
 }
 
 func heartBeat(stopChan chan os.Signal, local, remote adapter.MessageClient) {
-	c := time.Tick(time.Duration(5) * time.Second)
+	c := time.Tick(5 * time.Second)
 
 	for {
 		select {
@@ -231,7 +231,7 @@ func heartBeat(stopChan chan os.Signal, local, remote adapter.MessageClient) {
 
 var configPath *string
 var config *porterConfig = &porterConfig{
-	GatewayAddr: "http://127.0.0.1:9000",
+	GatewayAddr: "http://edgegw.iotedge:9000",
 }
 
 type syncHandler struct {

@@ -35,7 +35,6 @@ type ConnectCloser interface {
 
 // Subscriber 消息的消费者
 type Subscriber interface {
-
 	// Subscribe 订阅 Topic
 	Subscribe(topics ...string) error
 
@@ -99,9 +98,10 @@ func CreateClient(uri string) MessageClient {
 		}
 	} else if strings.Index(uri, "amqp://") == 0 {
 		return &AmqpMessageClient{
-			URI:   uri,
-			Queue: "streaming-porter",
-			mu:    new(sync.RWMutex),
+			URI:              uri,
+			Queue:            "streaming-porter",
+			subscribedTopics: make(map[string]bool),
+			mu:               new(sync.RWMutex),
 		}
 
 	} else if strings.Index(uri, "nats://") == 0 {

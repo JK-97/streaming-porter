@@ -23,7 +23,7 @@ review:
   environment:
     name: develop
     url: http://10.53.1.220
-  
+
   script:
     - make clean
     - make debian_rc arch=amd64
