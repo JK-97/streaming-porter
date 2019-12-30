@@ -3,6 +3,7 @@ package main
 //go:generate go run version_generate.go
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"flag"
@@ -49,7 +50,7 @@ func tryUntilConnected(client adapter.MessageClient) {
 }
 
 // StartSync 开始同步消息队列
-func StartSync(local, remote adapter.MessageClient, ch <-chan string) {
+func StartSync(ctx context.Context, local, remote adapter.MessageClient, ch <-chan string) {
 	channel := local.GetChan()
 	edgeToLocal := remoteClient.GetChan()
 
@@ -142,6 +143,9 @@ func StartSync(local, remote adapter.MessageClient, ch <-chan string) {
 				logger.Info("ACK")
 				obj.Ack()
 			}
+		case <-ctx.Done():
+			logger.Info("Context Done")
+			return
 		}
 	}
 }
@@ -178,15 +182,6 @@ func checkConnection(local, remote adapter.MessageClient) error {
 		logger.Info(err)
 		return err
 	}
-
-	// topics, err := GetAllSyncedTopics()
-	// if err != nil {
-	// 	logger.Info(err)
-	// 	return err
-	// }
-	// if len(topics) > 0 {
-	// 	local.Subscribe(topics...)
-	// }
 
 	if err := local.Connect(); err != nil {
 		logger.Info(err)
@@ -325,34 +320,6 @@ func fetchTopics(ch chan<- string) error {
 	}
 }
 
-// // GetAllSyncedTopics 获取所有需要同步的 Topic
-// func GetAllSyncedTopics() (topics []string, err error) {
-// 	resp, err := http.Get(config.GatewayAddr + "/api/v1/mq/topicz")
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	if resp.StatusCode >= 400 {
-// 		return
-// 	}
-// 	buf, err := ioutil.ReadAll(resp.Body)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer resp.Body.Close()
-
-// 	var s struct {
-// 		Data struct {
-// 			Topics []string `json:"topics"`
-// 		} `json:"data"`
-// 	}
-// 	err = json.Unmarshal(buf, &s)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	topics = s.Data.Topics
-// 	return
-// }
-
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "version" || os.Args[1] == "-v" {
 		fmt.Printf("Version: %s, Commit: %s, Date: %s\n", version, commit, date)
@@ -404,5 +371,7 @@ func main() {
 		}
 	}()
 
-	StartSync(localClient, remoteClient, ch)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	StartSync(ctx, localClient, remoteClient, ch)
 }
