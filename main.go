@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -38,13 +39,36 @@ type porterConfig struct {
 	LocalURI    string
 	RemoteURI   string
 	GatewayAddr string
+	KeepAlive   int
+}
+
+func (c *porterConfig) String() string {
+	return fmt.Sprintf("WorkerID: %s, LocalURI: %s, RemoteURI: %s, GatewayAddr: %s, KeepAlive: %d",
+		c.WorkerID,
+		c.LocalURI,
+		c.RemoteURI,
+		c.GatewayAddr,
+		c.KeepAlive,
+	)
 }
 
 func tryUntilConnected(client adapter.MessageClient) {
 	var err error
+	logger.Info("Connect: ", client)
 	err = client.Connect()
+	errCount := 0
 	for err != nil {
-		logger.Info(err)
+		logger.Error(err, client)
+		if opErr, ok := err.(*net.OpError); ok {
+			if opErr.Op == "dial" {
+				errCount++
+				// 重试 5 次仍不成功，则退出程序
+				if errCount >= 5 {
+					os.Exit(-1)
+				}
+				time.Sleep(time.Second)
+			}
+		}
 		time.Sleep(time.Second)
 	}
 }
@@ -55,13 +79,20 @@ func StartSync(ctx context.Context, local, remote adapter.MessageClient, ch <-ch
 	edgeToLocal := remoteClient.GetChan()
 
 	var obj adapter.MsgPair
+	var ticker = time.NewTicker(time.Minute)
+	var msgReceived = 0
+
 	for {
 		select {
 		// 需要同步的主题增加
 		case topic := <-ch:
-			logger.Info("Sync:", topic)
-			if err := local.Subscribe(topic); err != nil {
-				logger.Info(err)
+
+			if err := local.Subscribe(topic); err == nil {
+				logger.Info("Sync:", topic)
+			} else if err != adapter.ErrAlreadySubscribed {
+				logger.Info("Sub Error: ", err)
+			} else if err == adapter.ErrCommandInvalid {
+				os.Exit(-1)
 			}
 
 		// 云端同步到本地
@@ -74,7 +105,8 @@ func StartSync(ctx context.Context, local, remote adapter.MessageClient, ch <-ch
 					continue
 				}
 			}
-
+			msgReceived = 0
+			logger.Info("Pull from Cloud")
 			data := obj.Data()
 			var topic string
 			var buf []byte
@@ -115,20 +147,17 @@ func StartSync(ctx context.Context, local, remote adapter.MessageClient, ch <-ch
 		case obj = <-channel:
 			if obj == nil {
 				if _, ok := <-channel; !ok {
+					logger.Info("Reconnect Local")
 					// 连接中断
 					tryUntilConnected(local)
 					channel = local.GetChan()
 					continue
 				}
 			}
-
+			msgReceived = 0
+			logger.Info("Push to Cloud")
 			data := obj.Data()
-			switch data.(type) {
-			case []byte:
-				logger.Infof("T: %s, D: %s", obj.Topic(), string(data.([]byte)))
-			default:
-				logger.Infof("T: %s, D: %v", obj.Topic(), data)
-			}
+			logMsgData(data, obj)
 			err := remoteClient.Publish(obj.Topic(), obj.Data())
 			if err != nil {
 				logger.Error(err)
@@ -143,10 +172,26 @@ func StartSync(ctx context.Context, local, remote adapter.MessageClient, ch <-ch
 				logger.Info("ACK")
 				obj.Ack()
 			}
+
+		case <-ticker.C:
+			if config.KeepAlive > 0 && msgReceived > config.KeepAlive {
+				logger.Info("No message received exit")
+				return
+			}
+			msgReceived++
 		case <-ctx.Done():
 			logger.Info("Context Done")
 			return
 		}
+	}
+}
+
+func logMsgData(data interface{}, obj adapter.MsgPair) {
+	switch data.(type) {
+	case []byte:
+		logger.Infof("T: %s, D: %s", obj.Topic(), string(data.([]byte)))
+	default:
+		logger.Infof("T: %s, D: %v", obj.Topic(), data)
 	}
 }
 
@@ -179,17 +224,12 @@ func parseCommandLine(configPath *string) (string, string) {
 
 func checkConnection(local, remote adapter.MessageClient) error {
 	if err := local.Connect(); err != nil {
-		logger.Info(err)
-		return err
-	}
-
-	if err := local.Connect(); err != nil {
-		logger.Info(err)
+		logger.Info("Connect Local: ", err)
 		return err
 	}
 
 	if err := remote.Connect(); err != nil {
-		logger.Info(err)
+		logger.Info("Connect Remote: ", err)
 		return err
 	}
 
@@ -202,7 +242,7 @@ func checkConnection(local, remote adapter.MessageClient) error {
 
 func heartBeat(stopChan chan os.Signal, local, remote adapter.MessageClient) {
 	c := time.Tick(5 * time.Second)
-
+	logger.Info("Check Connections")
 	for {
 		select {
 		case <-c:
@@ -225,7 +265,7 @@ func heartBeat(stopChan chan os.Signal, local, remote adapter.MessageClient) {
 }
 
 var configPath *string
-var config *porterConfig = &porterConfig{
+var config = &porterConfig{
 	GatewayAddr: "http://edgegw.iotedge:9000",
 }
 
@@ -309,13 +349,20 @@ func fetchTopics(ch chan<- string) error {
 		if err != nil {
 			return err
 		}
+		logger.Info(message, string(message))
 		switch mt {
 		case websocket.TextMessage:
 			err := json.Unmarshal(message, &token)
-			if err != nil {
-				continue
+			if err == nil {
+				ch <- token.Topic
+			} else {
+				var initTopics []string
+				if err = json.Unmarshal(message, &initTopics); err == nil {
+					for _, t := range initTopics {
+						ch <- t
+					}
+				}
 			}
-			ch <- token.Topic
 		}
 	}
 }
@@ -326,9 +373,8 @@ func main() {
 		os.Exit(0)
 	}
 
-	logger.Info(os.Getpid())
+	logger.Info("App Started, Pid: ", os.Getpid())
 
-	// config.GetConfig()
 	configPath = flag.String("config", "porter.cfg", "Config file Path")
 	flag.StringVar(configPath, "c", "porter.cfg", "Config file Path")
 	flag.Parse()
@@ -342,10 +388,17 @@ func main() {
 	localClient = adapter.CreateClient(localURI)
 	remoteClient = adapter.CreateClient(remoteURI)
 
-	for {
+	retryCount := 5
+	for retryCount > 0 {
 		if err := checkConnection(localClient, remoteClient); err == nil {
 			break
 		}
+		time.Sleep(time.Second)
+		retryCount--
+	}
+
+	if retryCount <= 0 {
+		panic("Failed to connect to broker")
 	}
 
 	c := make(chan os.Signal)
@@ -359,9 +412,9 @@ func main() {
 		syscall.SIGTERM,
 		syscall.Signal(0x20),
 	)
-	go heartBeat(c, localClient, remoteClient)
 
-	ch := make(chan string, 16)
+	ch := make(chan string, 64)
+
 	go func() {
 		for {
 			err := fetchTopics(ch)
@@ -371,7 +424,11 @@ func main() {
 		}
 	}()
 
+	go heartBeat(c, localClient, remoteClient)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	logger.Info("Wait to get topics")
+
 	StartSync(ctx, localClient, remoteClient, ch)
 }

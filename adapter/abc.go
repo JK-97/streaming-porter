@@ -2,12 +2,16 @@ package adapter
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	stan "github.com/nats-io/stan.go"
 )
+
+// ErrAlreadySubscribed Topic 已被订阅
+var ErrAlreadySubscribed = errors.New("already subscribed")
 
 // MsgPair 消息和消息的所属 Topic
 type MsgPair interface {
@@ -110,7 +114,7 @@ func CreateClient(uri string) MessageClient {
 			ClusterID: "test-cluster",
 			ClientID:  "streaming-porter",
 			subMap:    make(map[string]stan.Subscription),
-			channel:   make(chan MsgPair, 1),
+			channel:   make(chan MsgPair),
 			mu:        new(sync.RWMutex),
 		}
 	} else if strings.Index(uri, "mqtt://") == 0 {

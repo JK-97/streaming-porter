@@ -53,6 +53,10 @@ type AmqpMessageClient struct {
 	mu               *sync.RWMutex
 }
 
+func (c *AmqpMessageClient) String() string {
+	return fmt.Sprintf("URI: %s, Queue: %s, Topics: %v", c.URI, c.Queue, c.subscribedTopics)
+}
+
 // Connect bala
 // c *AmqpMessageClient adapter.MessageClient
 func (c *AmqpMessageClient) Connect() error {
@@ -81,8 +85,11 @@ func (c *AmqpMessageClient) Close() error {
 		if c.channel != nil {
 			// c.channel <- nil
 			close(c.channel)
+			for range c.channel {
+			}
 			c.channel = nil
 		}
+
 		return err
 	}
 	return nil
@@ -159,29 +166,42 @@ func (c *AmqpMessageClient) SubChannel() *amqp.Channel {
 func (c *AmqpMessageClient) Subscribe(topics ...string) error {
 	channel := c.SubChannel()
 	// 是否为新订阅
-	var newSub bool
+
+	var newTopics []string
 	for _, topic := range topics {
-		if !c.subscribedTopics[topic] {
-			c.subscribedTopics[topic] = true
-			newSub = true
+		if c.subscribedTopics[topic] {
+			continue
 		}
+
+		c.subscribedTopics[topic] = true
+		newTopics = append(newTopics, topic)
+
+		logger.Info("Sub Topic: ", topic)
 
 		// TODO
 		err := channel.QueueBind(c.Queue, "", topic, false, nil)
 		if err != nil {
 			channel.Close()
 			c.subChannel = nil
+			if err == amqp.ErrCommandInvalid {
+				logger.Error(err)
+				return ErrCommandInvalid
+			}
+
 			return err
 		}
 	}
-	if newSub && c.subChannel != nil && c.channel != nil {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-
-		// 关闭订阅用 Channel，等待调用方重新打开
-		c.subChannel.Close()
-		c.subChannel = nil
+	if len(newTopics) == 0 {
+		return ErrAlreadySubscribed
 	}
+	// else {
+	// if c.subChannel != nil && c.channel != nil {
+	// 	c.mu.Lock()
+	// 	logger.Info("New Topics: ", newTopics, " Reconnect")
+	// 	// 关闭订阅用 Channel，等待调用方重新打开
+	// 	c.Close()
+	// }
+	// }
 
 	return nil
 }
@@ -257,7 +277,7 @@ func (c *AmqpMessageClient) GetChan() <-chan MsgPair {
 
 	if c.channel == nil {
 		logger.Info("Make Chan:", c.URI)
-		c.channel = make(chan MsgPair, 1)
+		c.channel = make(chan MsgPair)
 		go c.consume()
 	}
 
