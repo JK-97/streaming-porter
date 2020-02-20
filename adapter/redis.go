@@ -1,6 +1,7 @@
 package adapter
 
 import (
+	"fmt"
 	"sync"
 
 	"gitlab.jiangxingai.com/applications/base-modules/internal-sdk/go-utils/logger"
@@ -15,6 +16,10 @@ type RedisMessageClient struct {
 	pubsub  *redis.PubSub
 	channel chan MsgPair
 	mu      *sync.RWMutex
+}
+
+func (c *RedisMessageClient) String() string {
+	return fmt.Sprintf("URI: %s", c.URI)
 }
 
 // Connect 连接到 Broker
@@ -123,7 +128,7 @@ func (c *RedisMessageClient) GetChan() <-chan MsgPair {
 
 	if c.channel == nil {
 		logger.Info("Make Chan:", c.URI)
-		c.channel = make(chan MsgPair, 1)
+		c.channel = make(chan MsgPair)
 		go func() {
 			var msg *redis.Message
 			channel := c.getPubsub().Channel()

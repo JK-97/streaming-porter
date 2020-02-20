@@ -18,4 +18,6 @@ var (
 	ErrNilMsg           = errors.New("porter: nil message")
 	ErrNoServerSupport  = errors.New("porter: not supported by server")
 	ErrMaxPings         = errors.New("porter: connection lost due to PING failure")
+
+	ErrCommandInvalid = errors.New("porter: unexpected command received") // 客户端内部 Bug
 )
