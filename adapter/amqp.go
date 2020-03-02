@@ -79,6 +79,7 @@ func (c *AmqpMessageClient) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.subChannel = nil
 	if c.conn != nil {
 		err := c.conn.Close()
 		c.conn = nil
@@ -304,11 +305,19 @@ func (c *AmqpMessageClient) consume() {
 	channel := c.SubChannel()
 	errChan := make(chan *amqp.Error, 2)
 	amqChan, err := channel.Consume(c.Queue, c.Queue, false, false, true, false, nil)
-	channel.NotifyClose(errChan)
 
 	if err != nil {
 		logger.Info(err)
+		switch v := err.(type) {
+		case *amqp.Error:
+			if v.Code == 504 {
+				c.subChannel = nil
+				return
+			}
+		}
 	}
+
+	channel.NotifyClose(errChan)
 
 	for {
 		select {
