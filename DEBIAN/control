@@ -1,6 +1,6 @@
 Package: jx-mq
 Version: REPLACE_VERSION
-Maintainer: liuruihua <liuruihua@jiangxing.ai>
+Maintainer: JK-97 <1179160244@qq.com>
 Description: Sync Message Queue.
-Homepage: http://gitlab.jiangxingai.com/edgenode/synctools/streaming-porter
+Homepage:https://github.com/JK-97/streaming-porter
 Architecture: REPLACE_ARCH

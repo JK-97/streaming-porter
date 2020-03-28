@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/JK-97/go-utils/logger"
+	"github.com/JK-97/streaming-porter/adapter"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -16,9 +18,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"gitlab.jiangxingai.com/applications/base-modules/internal-sdk/go-utils/logger"
-	"gitlab.jiangxingai.com/edgenode/synctools/streaming-porter/adapter"
 
 	"github.com/BurntSushi/toml"
 	"github.com/gorilla/websocket"

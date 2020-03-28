@@ -10,8 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"gitlab.jiangxingai.com/applications/base-modules/internal-sdk/go-utils/logger"
-
+	"github.com/JK-97/go-utils/logger"
 	stan "github.com/nats-io/stan.go"
 	pb "github.com/nats-io/stan.go/pb"
 )

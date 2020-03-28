@@ -8,9 +8,8 @@ import (
 	"net/url"
 	"sync"
 
+	"github.com/JK-97/go-utils/logger"
 	"github.com/streadway/amqp"
-
-	"gitlab.jiangxingai.com/applications/base-modules/internal-sdk/go-utils/logger"
 )
 
 type amqpExchangeStruct struct {
