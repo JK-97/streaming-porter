@@ -1,5 +1,5 @@
 NAME=mq
-PACKAGE_NAME=jx-mq
+PACKAGE_NAME=streaming-porter
 BINDIR=build/bin
 PACKAGE_DIR=build/package-$(arch)
 EXTRACT_DIR=edge/mnt/mq
@@ -37,9 +37,6 @@ changelog:
 	mkdir -p build
 	echo "# Changelog\n" > $(CHANGELOG)
 	TZ=UTC-8 git tag -l 'v*' --sort=-creatordate --format='## %(refname:short) - %(creatordate:iso-local)%0a### Author: %(taggername) %(taggeremail)%0a%(contents)%0a' >> $(CHANGELOG)
-
-upload_changelog: changelog
-	curl -s --fail -F "changelog=@$(CHANGELOG)" "http://packages.debian.jiangxingai.com:8000/api/v1/packages/$(PACKAGE_NAME)/changelog"
 
 debian_base: build
 	mkdir -p $(PACKAGE_DIR)/$(EXTRACT_DIR)/bin

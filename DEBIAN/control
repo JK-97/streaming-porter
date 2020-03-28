@@ -1,4 +1,4 @@
-Package: jx-mq
+Package: streaming-porter
 Version: REPLACE_VERSION
 Maintainer: JK-97 <1179160244@qq.com>
 Description: Sync Message Queue.
